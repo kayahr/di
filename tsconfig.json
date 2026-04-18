@@ -7,7 +7,7 @@
         "lib": [
             "ES2022",
             "ESNext.Decorators",
-            "DOM"
+            "ESNext.Disposable"
         ],
         "module": "node20",
         "newLine": "lf",
@@ -17,6 +17,7 @@
         "noImplicitOverride": true,
         "noImplicitReturns": true,
         "noImplicitThis": true,
+        "incremental": true,
         "inlineSources": false,
         "noUnusedLocals": true,
         "noUnusedParameters": false,
@@ -28,6 +29,7 @@
         "sourceMap": true,
         "strict": true,
         "target": "es2022",
+        "tsBuildInfoFile": "lib/.tsbuildinfo",
         "types": [ "node" ]
     }
 }

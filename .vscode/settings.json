@@ -1,7 +1,7 @@
 {
     "js/ts.tsdk.path": "node_modules/typescript/lib",
     "files.exclude": {
-        "lib": false,
+        "lib": true,
         "node_modules": true
     },
     "nodejs-testing.extensions": [

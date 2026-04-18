@@ -4,124 +4,103 @@ title: Factory dependencies
 
 # Factory dependencies
 
-Factory functions can be registered with the `context.setFactory()` method:
+Factory functions and static factory methods can be registered with `injector.setFactory()`:
 
-```typescript
+```ts
 class Foo {}
+
 function createFoo(): Foo {
     return new Foo();
 }
-context.setFactory(Foo, createFoo);
+
+injector.setFactory(Foo, createFoo);
 ```
 
-Factory methods can be registered the same way and also with the `injectable` decorator. Classes instantiated with a factory method can even have a private constructor:
+Static factory methods work the same way:
 
-```typescript
-// With decorator
+```ts
+class Bar {
+    private constructor() {}
+
+    public static create(): Bar {
+        return new Bar();
+    }
+}
+
+injector.setFactory(Bar, Bar.create);
+```
+
+Static factory methods can also be registered with the `injectable` decorator. Classes instantiated with a factory method can even have a private constructor:
+
+```ts
 class Service {
     private constructor() {}
+
     @injectable
     public static create(): Service {
         return new Service();
     }
 }
-
-// Without decorator
-class Service {
-    private constructor() {}
-    public static create(): Service {
-        return new Service();
-    }
-}
-context.setFactory(Service, Service.create);
 ```
 
+The `injectable` decorator on static factory methods accepts the same options object as `injector.setFactory()`.
 
-## Option `inject`
+## Factory injection
 
-If factory method or function has parameters then the parameter types must be specified with the `inject` option:
+If a factory function or method has parameters then the parameter types must be specified with the `inject` option:
 
-```typescript
-// With decorator
+```ts
 class Component {
     private constructor(service: Service) {}
+
     @injectable({ inject: [ Service ] })
     public static create(service: Service): Component {
         return new Component(service);
     }
 }
-
-// Without decorator
-class Component {
-    private constructor(service: Service) {}
-    public static create(service: Service): Component {
-        return new Component(service);
-    }
-}
-context.setFactory(Service, { inject: [ Service ] });
 ```
 
-TypeScript validates that the constructor parameter type matches the type used in the `inject` array. Alternatively to concrete types you can also inject dependencies [by name](./named-dependencies.md) or as a [qualified type](./qualified-types.md).
+## Factory tokens
 
+Factories can also be qualified with one or more injection tokens:
 
-## Option `name`
+```ts
+import { InjectionToken, injectable } from "@kayahr/di";
 
-The factory can be qualified with one or more names to allow injecting its created value as a [named dependency](named-dependencies.md) or as a [qualified type](qualified-types.md):
+const componentToken = new InjectionToken<Component>("some-component");
 
-```typescript
-// With decorator
 class Component {
-    @injectable({ name: "some-name" })
+    @injectable({ token: componentToken })
     public static create(): Component {
         return new Component();
     }
 }
-
-// Without decorator
-class Component {}
-function createComponent(): Component {
-    return new Component();
-}
-context.setFactory(Component, createComponent, { name: "some-name" });
 ```
 
-Instead of specifying a single string the name can also be an array of strings to define multiple names.
+Just like with classes, tokens are also useful for interfaces because interfaces do not exist at runtime.
 
+## Factory lifetimes
 
-## Option `scope`
+Factories support the same lifetimes as classes:
 
-Factories can create singletons or prototype-scoped instances. Default scope is `SINGLETON` which means that only one instance is created and then cached in the context. Scope `PROTOTYPE` means that a new instance is created for every injection.
+```ts
+import { Lifetime, injectable } from "@kayahr/di";
 
-The scope can be defined like this:
-
-```typescript
-import { injectable, Scope } from "@kayahr/cdi";
-
-// With decorator
 class Component {
-    @injectable({ scope: Scope.PROTOTYPE })
+    @injectable({ lifetime: Lifetime.TRANSIENT })
     public static create(): Component {
         return new Component();
     }
 }
-
-// Without decorator
-class Component {
-    public static create(): Component {
-        return new Component();
-    }
-}
-context.setFactory(Component, Component.create, { scope: Scope.PROTOTYPE });
 ```
-
 
 ## Asynchronous dependencies
 
-Factory functions and methods can also return a promise to create an asynchronous dependency:
+Factory functions and methods can also return promises:
 
-```typescript
+```ts
 class UserDAO {
-    private constructor(private db: Database) {}
+    private constructor(private readonly db: Database) {}
 
     @injectable({ inject: [ DBService ] })
     public static async create(dbService: DBService): Promise<UserDAO> {
@@ -132,45 +111,35 @@ class UserDAO {
 
 If a dependency depends on an asynchronous dependency then it automatically also becomes asynchronous:
 
-```typescript
+```ts
 @injectable({ inject: [ UserDAO ] })
 class Component {
-    public constructor(userDao: UserDAO) {}
+    public constructor(userDAO: UserDAO) {}
 }
 ```
 
-`context.get(Component)` would now return a Promise on first call because the instance creation must wait until UserDAO has been created. On subsequent calls it may return the component synchronously when construction has already finished and Component and UserDAO are both singletons.
+`injector.get(Component)` now returns a promise on the first call because instance creation must wait for `UserDAO`.
 
 ## Pass-through parameters
 
-Prototype-scoped dependencies allow specifying pass-through parameters which are not injected automatically and must be passed through manually when getting the dependency directly from the injection context. These pass-through parameters are marked with `null` placeholders in the `inject` array. There can be any number of these placeholders at any location.
+Transient factory dependencies also support pass-through parameters:
 
-In this example the first injected parameter of the `Component` class is passed-through manually while the second one (`Service`) is automatically injected.
+```ts
+import { Lifetime, injectable, injector } from "@kayahr/di";
 
-```typescript
-// With decorator
 class Component {
-    @injectable({ inject: [ null, Service, null ] scope: Scope.PROTOTYPE })
-    public static create(name: string, service: Service, id: number) {
+    @injectable({ inject: [ null, Service, null ], lifetime: Lifetime.TRANSIENT })
+    public static create(name: string, service: Service, id: number): Component {
         return new Component();
     }
 }
-
-// Without decorator
-class Component {
-    public static create(name: string, service: Service, id: number) {
-        return new Component();
-    }
-}
-context.setFactory(Component, Component.create, { inject: [ null, Service, null ], scope: Scope.PROTOTYPE });
 ```
 
-This dependency can be created directly from the injection context like this:
+Resolve such a dependency like this:
 
-```typescript
-const component = context.getSync(Component, [ "test", 32 ]);
+```ts
+const component = injector.getSync(Component, { args: [ "test", 32 ] });
 ```
 
-`"test"` is passed through as first constructor argument and `32` is the third constructor argument.
-
-Note that it's not possible to handle these manually passed-through parameters in a type-safe way, so same problematic as with named dependencies. It's also not possible to validate at compile-time if enough parameters were specified. An exception is thrown at runtime when a pass-through parameter is missing.
+Because the pass-through positions are only known from the runtime registration, `args` can not be typed precisely. TypeScript therefore does
+not validate the number or types of the passed values here.

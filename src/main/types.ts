@@ -1,68 +1,49 @@
 /*
- * Copyright (C) 2025 Klaus Reimer <k@ailis.de>
- * See LICENSE.md for licensing information
+ * Copyright (C) 2025 Klaus Reimer
+ * SPDX-License-Identifier: MIT
  */
 
 /**
  * Class type which even works for classes with a private constructor. If you have a public constructor consider using {@link Constructor} instead.
  *
- * @template T - The class instance type.
- *
- * @internal
+ * @template Instance - The class instance type.
  */
-export type Class<T = unknown> = Function & {
+export type Class<Instance = unknown> = Function & {
     /** The class prototype. */
-    prototype: T;
+    prototype: Instance;
 };
 
 /**
  * Public constructor type.
  *
- * @template T - The class instance type.
- * @template P - The constructor parameter types.
- *
- * @internal
+ * @template Instance - The class instance type.
+ * @template Params   - The constructor parameter types.
  */
-export type Constructor<T = unknown, P extends unknown[] = any[]> = (new (...args: P) => T) & Class<T>;
+export type Constructor<Instance = unknown, Params extends unknown[] = any[]> =
+    (new (...args: Params) => Instance) & Class<Instance>;
 
 /**
  * Factory function type.
  *
- * @template T - The type of the created value (synchronous or asynchronous).
- * @template P - The factory function parameter types.
- *
- * @internal
+ * @template Result - The type of the created value (synchronous or asynchronous).
+ * @template Params - The factory function parameter types.
  */
-export type Factory<T = unknown, P extends unknown[] = unknown[]> = (...args: P) => T | Promise<T>;
+export type Factory<Result = unknown, Params extends unknown[] = unknown[]> = (...args: Params) => Result | Promise<Result>;
 
 /**
  * Type of a class decorator.
  *
- * @template T - The type of the decorated class.
- * @template P - The constructor parameter types.
- *
- * @internal
+ * @template Instance - The type of the decorated class instance.
+ * @template Params   - The constructor parameter types.
  */
-export type ClassDecorator<T = unknown, P extends unknown[] = unknown[]>
-    = (target: Constructor<T, P>, context: ClassDecoratorContext<Constructor<T, P>>) => void;
+export type ClassDecorator<Instance = unknown, Params extends unknown[] = unknown[]> =
+    (target: Constructor<Instance, Params>, context: ClassDecoratorContext<Constructor<Instance, Params>>) => void;
 
 /**
  * Type of a static factory method decorator.
  *
- * @template T - The type of the created value (synchronous or asynchronous).
- * @template P - The factory function parameter types.
- *
- * @internal
+ * @template Instance - The type of the decorated class instance.
+ * @template Params   - The factory function parameter types.
  */
-export type ClassMethodDecorator<T = unknown, P extends unknown[] = unknown[]>
-    = (target: Factory<T, P>, context: ClassMethodDecoratorContext<Class<T>, Factory<T, P>>) => void;
-
-/**
- * Returns the super class of the given class.
- *
- * @param type - The class for which to return the super class.
- * @returns The super class of the given class. Null when class is the Object class which has no super class.
- */
-export function getSuperClass(type: Class): Class | null {
-    return (Object.getPrototypeOf(type.prototype ?? Object.prototype) as Class)?.constructor ?? null;
-}
+export type ClassMethodDecorator<Instance = unknown, Params extends unknown[] = unknown[]> =
+    (target: Factory<Instance, Params>, context: ClassMethodDecoratorContext<Class<Instance>, Factory<Instance, Params>>) => void;

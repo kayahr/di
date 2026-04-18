@@ -1,13 +1,12 @@
 {
     "$schema": "https://json.schemastore.org/package",
-    "name": "@kayahr/cdi",
-    "version": "0.3.1",
+    "name": "@kayahr/di",
+    "version": "1.0.0",
     "type": "module",
     "description": "Simple generic dependency injection library",
     "keywords": [
-        "cdi",
+        "di",
         "dependency-injection",
-        "context",
         "dependency",
         "dependencies",
         "injection",
@@ -15,10 +14,10 @@
     ],
     "license": "MIT",
     "author": "Klaus Reimer <k@ailis.de>",
-    "repository": "github:kayahr/cdi",
-    "homepage": "https://github.com/kayahr/cdi",
-    "bugs": "https://github.com/kayahr/cdi/issues",
-    "funding": "https://github.com/kayahr/cdi?sponsor=1",
+    "repository": "github:kayahr/di",
+    "homepage": "https://github.com/kayahr/di",
+    "bugs": "https://github.com/kayahr/di/issues",
+    "funding": "https://github.com/kayahr/di?sponsor=1",
     "publishConfig": {
         "access": "public"
     },
@@ -27,8 +26,7 @@
         "src/main/"
     ],
     "exports": {
-        ".": "./lib/main/index.js",
-        "./legacy": "./lib/main/legacy-decorators.js"
+        ".": "./lib/main/index.js"
     },
     "scripts": {
         "clean": "rm -rf lib",
@@ -47,10 +45,12 @@
         "@kayahr/cspell": "9.7.0-bundle.1",
         "@kayahr/npm-utils": "1.1.2",
         "@kayahr/ntest": "1.3.0",
-        "@kayahr/oxlint-config": "1.31.1",
+        "@kayahr/oxlint-config": "1.32.0",
         "@kayahr/typedoc": "0.28.18-bundle.1",
-        "@types/node": "25.5.0",
-        "reflect-metadata": "0.2.2",
-        "typescript": "6.0.2"
+        "@types/node": "25.6.0",
+        "typescript": "6.0.3"
+    },
+    "dependencies": {
+        "@kayahr/scope": "^1.2.0"
     }
 }

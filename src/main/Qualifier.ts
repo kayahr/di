@@ -1,53 +1,79 @@
 /*
- * Copyright (C) 2025 Klaus Reimer <k@ailis.de>
- * See LICENSE.md for licensing information
+ * Copyright (C) 2025 Klaus Reimer
+ * SPDX-License-Identifier: MIT
  */
 
-import type { QualifiedType } from "./QualifiedType.ts";
+import type { InjectionToken } from "./InjectionToken.ts";
 import type { Class } from "./types.ts";
 
 /**
- * Type of a dependency qualifier. Either a class or a name/symbol.
+ * Type of a dependency qualifier. Either a class or an injection token.
  *
- * @param T - The class type.
+ * @template Value - The resolved dependency value type.
  */
-export type Qualifier<T = unknown> = Class<T> | QualifiedType<Class<T>> | string | symbol;
+export type Qualifier<Value = any> = Class<Value> | InjectionToken<Value>;
+
+/**
+ * Internal qualifier type used by the registry and resolver.
+ *
+ * This extends the public {@link Qualifier} with the raw function qualifier used by {@link Injector.setFunction}.
+ *
+ * @template Value - The resolved dependency value type.
+ * @template Type  - The raw registration type of the injectable itself.
+ */
+export type DependencyQualifier<Value = any, Type extends Function = Class<Value>> = Type | Qualifier<Value>;
+
+/** Internal fully-erased dependency qualifier type used by heterogeneous resolver and registry internals. */
+export type AnyDependencyQualifier = DependencyQualifier<any, any>;
 
 /**
  * Maps constructor/factory parameter types to qualifiers.
  *
- * @param T - The constructor/factory parameter types to map.
+ * @template Params - The constructor/factory parameter types to map.
  */
-export type Qualifiers<T extends unknown[] = unknown[]> = NoInfer<{ [ K in keyof T ]: Qualifier<T[K]> }>;
+export type Qualifiers<Params extends unknown[] = unknown[]> = NoInfer<{ [ K in keyof Params ]: Qualifier<Params[K]> }>;
 
 /**
- * Type of a nullable dependency qualifier. Either a class, a name or null. Used for function injecting where `null` defines a pass-through parameter.
+ * Type of a nullable dependency qualifier. Either a normal qualifier or null. Used for function injection where `null` defines a pass-through
+ * parameter.
  *
- * @param T - The class type.
+ * @template Value - The resolved dependency value type.
  */
-export type NullableQualifier<T = unknown> = Qualifier<T> | null;
+export type NullableQualifier<Value = any> = Qualifier<Value> | null;
 
 /**
- * Maps function parameter types to nullable qualifiers. Used for function injecting where `null` defines a pass-through parameter.
+ * Maps function parameter types to nullable qualifiers. Used for function injection where `null` defines a pass-through parameter.
  *
- * @param T - The function parameter types to map.
+ * @template Params - The function parameter types to map.
  */
-export type NullableQualifiers<T extends unknown[] = unknown[]> = NoInfer<{ [ K in keyof T ]: NullableQualifier<T[K]> }>;
+export type NullableQualifiers<Params extends unknown[] = unknown[]> =
+    NoInfer<{ [ K in keyof Params ]: NullableQualifier<Params[K]> }>;
 
 /**
- * @internal
+ * Internal qualifier formatting helpers used in diagnostics.
+ *
+ * @namespace
  */
 export const Qualifier = {
     /**
      * @returns A string representation of the qualifier.
      */
-    toString(qualifier: Qualifier): string {
-        if (qualifier instanceof Function) {
-            return `<${qualifier.name}>`;
-        } else  if (typeof qualifier === "string") {
-            return `'${qualifier}'`;
-        } else {
-            return qualifier.toString();
+    toString(qualifier: AnyDependencyQualifier): string {
+        return qualifier instanceof Function
+            ? (qualifier.name === "" ? "<anonymous function>" : `<${qualifier.name}>`)
+            : qualifier.toString();
+    },
+
+    /**
+     * @returns A string representation of one or multiple qualifiers.
+     */
+    toStrings(qualifiers: readonly AnyDependencyQualifier[]): string {
+        if (qualifiers.length === 0) {
+            return "<unknown dependency>";
         }
+        if (qualifiers.length === 1) {
+            return this.toString(qualifiers[0]);
+        }
+        return `one of [${qualifiers.map(qualifier => this.toString(qualifier)).join(", ")}]`;
     }
 } as const;

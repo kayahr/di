@@ -4,100 +4,116 @@ title: Class dependencies
 
 # Class dependencies
 
-Synchronously instantiated classes with a public constructor can be registered with the `context.setClass()` method or the `injectable` decorator. If the class is instantiated asynchronously or has a private constructor then you have to use a [factory method](./factory-dependencies.md) instead.
+Synchronously instantiated classes with a public constructor can be registered with `injector.setClass()` or the `injectable` decorator. If the class is instantiated asynchronously or has a private constructor then you have to use a [factory method](./factory-dependencies.md) instead.
 
 If the constructor has no parameters then no options are needed:
 
-```typescript
-// With decorator
+```ts
+import { injectable, injector } from "@kayahr/di";
+
 @injectable
 class Service {}
 
-// Without decorator
-class Service {}
-context.setClass(Service);
+class OtherService {}
+injector.setClass(OtherService);
 ```
 
-## Option `inject`
+The `injectable` decorator accepts the same options object as `injector.setClass()`.
 
-If constructor has parameters then the parameter types must be specified with the `inject` option:
+When using a custom injector instance you can also use its bound decorator directly:
 
-```typescript
-// With decorator
+```ts
+import { Injector } from "@kayahr/di";
+
+const appInjector = new Injector();
+
+@appInjector.injectable
+class AppService {}
+```
+
+## Constructor injection
+
+If the constructor has parameters then the parameter types must be specified with the `inject` option:
+
+```ts
 @injectable({ inject: [ Service ] })
 class Component {
-    public constructor(service: Service) {};
+    public constructor(service: Service) {}
 }
-
-// Without decorator
-class Service {
-    public constructor(service: Service) {};
-}
-context.setClass(Service, { inject: [ Service ] });
 ```
 
-TypeScript validates that the constructor parameter type matches the type used in the `inject` array. Alternatively you can also inject dependencies [by name](./named-dependencies.md) or as a [qualified type](./qualified-types.md).
+TypeScript validates that the constructor parameter type matches the type used in the `inject` array. Alternatively you can inject dependencies by token.
 
-## Option `name`
+## Class tokens
 
-The class can be qualified with one or more names to allow injecting it as a [named dependency](named-dependencies.md) or as a [qualified type](qualified-types.md):
+The class can be qualified with one or more injection tokens:
 
-```typescript
-// With decorator
-@injectable({ name: "some-name" })
+```ts
+import { InjectionToken, injectable } from "@kayahr/di";
+
+const componentToken = new InjectionToken<Component>("some-component");
+
+@injectable({ token: componentToken })
 class Component {}
-
-// Without decorator
-class Component {}
-context.setClass(Component, { name: "some-name" });
 ```
 
-Instead of specifying a single string the name can also be an array of strings to define multiple names.
+Instead of specifying a single token, `token` can also be an array of tokens.
 
-## Option `scope`
+Tokens are especially useful for interfaces, because interfaces do not exist at runtime and therefore can not be used as normal DI qualifiers:
 
-Classes can be created as singletons or prototype-scoped instances. Default scope is `SINGLETON` which means that only one instance is created and then cached in the context. Scope `PROTOTYPE` means that a new instance is created for every injection.
+```ts
+import { InjectionToken, injectable } from "@kayahr/di";
 
-The scope can be defined like this:
+interface Adder {
+    add(a: number, b: number): number;
+}
 
-```typescript
-import { injectable, Scope } from "@kayahr/cdi";
+const adderToken = new InjectionToken<Adder>("adder");
 
-// With decorator
-@injectable({ scope: Scope.PROTOTYPE })
+@injectable({ token: adderToken })
+class MathService implements Adder {
+    public add(a: number, b: number): number {
+        return a + b;
+    }
+}
+
+@injectable({ inject: [ adderToken ] })
+class Component {
+    public constructor(private readonly adder: Adder) {}
+}
+```
+
+## Class lifetimes
+
+Classes can be created as singletons or as transient instances. Default lifetime is `SINGLETON`, which means one shared instance per owning scope. `TRANSIENT` means that a new instance is created for every resolve.
+
+```ts
+import { Lifetime, injectable } from "@kayahr/di";
+
+@injectable({ lifetime: Lifetime.TRANSIENT })
 class Component {}
-
-// Without decorator
-class Component {}
-context.setClass(Component, { scope: Scope.PROTOTYPE });
 ```
 
 ## Pass-through parameters
 
-Prototype-scoped dependencies allow specifying pass-through parameters which are not injected automatically and must be passed through manually when getting the dependency directly from the injection context. These pass-through parameters are marked with `null` placeholders in the `inject` array. There can be any number of these placeholders at any location.
+Transient dependencies allow specifying pass-through parameters which are not injected automatically and must be passed through manually when resolving the dependency directly. These parameters are marked with `null` placeholders in the `inject` array.
 
-In this example the first injected parameter of the `Component` class is passed-through manually while the second one (`Service`) is automatically injected.
+```ts
+import { Lifetime, injectable, injector } from "@kayahr/di";
 
-```typescript
-// With decorator
-@injectable({ inject: [ null, Service, null ] scope: Scope.PROTOTYPE })
+@injectable({ inject: [ null, Service, null ], lifetime: Lifetime.TRANSIENT })
 class Component {
     public constructor(name: string, service: Service, id: number) {}
 }
-
-// Without decorator
-class Component {
-    public constructor(name: string, service: Service, id: number) {}
-}
-context.setClass(Component, { inject: [ null, Service, null ], scope: Scope.PROTOTYPE });
 ```
 
-This dependency can be created directly from the injection context like this:
+Resolve such a dependency like this:
 
-```typescript
-const component = context.getSync(Component, [ "test", 32 ]);
+```ts
+const component = injector.getSync(Component, { args: [ "test", 32 ] });
 ```
 
-`"test"` is passed through as first constructor argument and `32` is the third constructor argument.
+`"test"` becomes the first constructor argument and `32` becomes the third constructor argument.
 
-Note that it's not possible to handle these manually passed-through parameters in a type-safe way, so same problematic as with named dependencies. It's also not possible to validate at compile-time if enough parameters were specified. An exception is thrown at runtime when a pass-through parameter is missing.
+Because the pass-through positions are only known from the runtime registration, `args` can not be typed precisely. TypeScript therefore does
+not validate the number or types of the passed values here.

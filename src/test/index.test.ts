@@ -1,34 +1,47 @@
 /*
- * Copyright (C) 2024 Klaus Reimer <k@ailis.de>
- * See LICENSE.md for licensing information
+ * Copyright (C) 2026 Klaus Reimer
+ * SPDX-License-Identifier: MIT
  */
 
 import { describe, it } from "node:test";
 
-import { Context, type InjectableOptions } from "../main/Context.ts";
-import { type InjectableDecorator, type InjectableDecoratorContext, type InjectableTarget, injectable } from "../main/decorator.ts";
+import { assertEquals } from "@kayahr/assert";
 import * as exports from "../main/index.ts";
 import { InjectionError } from "../main/InjectionError.ts";
-import { QualifiedType, qualify } from "../main/QualifiedType.ts";
+import { InjectionToken } from "../main/InjectionToken.ts";
+import {
+    type FunctionInject,
+    type FunctionOptions,
+    type FunctionPassThroughParams,
+    type InjectableOptions,
+    type InjectedFunction,
+    Injector,
+    type ResolveOptions,
+    type ResolvedFunction,
+    type TokenOptions,
+    injectable,
+    injector
+} from "../main/Injector.ts";
+import { Lifetime } from "../main/Lifetime.ts";
+import type { InjectableDecorator, InjectableDecoratorFactory } from "../main/decorator.ts";
 import type { NullableQualifier, NullableQualifiers, Qualifier, Qualifiers } from "../main/Qualifier.ts";
-import { Scope } from "../main/Scope.ts";
-import type { Class, ClassDecorator, ClassMethodDecorator, Constructor, Factory } from "../main/types.ts";
-import { assertEquals } from "@kayahr/assert";
+import type { Class, Constructor, Factory } from "../main/types.ts";
 
 describe("index", () => {
     it("exports relevant types and functions and nothing more", () => {
-        // Check functions, classes and enums
         assertEquals({ ...exports }, {
-            Context,
-            InjectionError,
-            Scope,
+            Injector,
+            InjectionToken,
+            Lifetime,
+            injector,
             injectable,
-            qualify,
-            QualifiedType
+            InjectionError
         });
 
-        // Interfaces and types can only be checked by TypeScript
         ((): InjectableOptions => (({} as exports.InjectableOptions)))();
+        ((): FunctionOptions => (({} as exports.FunctionOptions)))();
+        ((): ResolveOptions => (({} as exports.ResolveOptions)))();
+        ((): TokenOptions => (({} as exports.TokenOptions)))();
         ((): Class => (({} as exports.Class)))();
         ((): Constructor => (({} as exports.Constructor)))();
         ((): Factory => (({} as exports.Factory)))();
@@ -36,10 +49,13 @@ describe("index", () => {
         ((): Qualifiers => (({} as exports.Qualifiers)))();
         ((): NullableQualifier => (({} as exports.NullableQualifier)))();
         ((): NullableQualifiers => (({} as exports.NullableQualifiers)))();
-        ((): ClassDecorator => (({} as exports.ClassDecorator)))();
-        ((): ClassMethodDecorator => (({} as exports.ClassMethodDecorator)))();
+        ((): FunctionInject<[ string, number ]> => (({} as exports.FunctionInject<[ string, number ]>)))();
+        ((): FunctionPassThroughParams<[ string, number ], [ null, InjectionToken<number> ]> =>
+            (({} as exports.FunctionPassThroughParams<[ string, number ], [ null, InjectionToken<number> ]>)))();
+        ((): InjectedFunction<[ string, number ], [ null, InjectionToken<number> ], boolean> =>
+            (({} as exports.InjectedFunction<[ string, number ], [ null, InjectionToken<number> ], boolean>)))();
+        ((): ResolvedFunction<[ string, number ], boolean> => (({} as exports.ResolvedFunction<[ string, number ], boolean>)))();
         ((): InjectableDecorator => (({} as exports.InjectableDecorator)))();
-        ((): InjectableDecoratorContext => (({} as exports.InjectableDecoratorContext)))();
-        ((): InjectableTarget => (({} as exports.InjectableTarget)))();
+        ((): InjectableDecoratorFactory => (({} as exports.InjectableDecoratorFactory)))();
     });
 });

@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2025 Klaus Reimer <k@ailis.de>
- * See LICENSE.md for licensing information.
+ * Copyright (C) 2025 Klaus Reimer
+ * SPDX-License-Identifier: MIT
  */
 
 /**

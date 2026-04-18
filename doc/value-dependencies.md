@@ -4,37 +4,34 @@ title: Value dependencies
 
 # Value dependencies
 
-Static values can be registered with `context.setValue()`:
+Static values can be registered with `injector.setValue()`, but always through one or more tokens:
 
-```typescript
-context.setValue(new Service());
+```ts
+import { InjectionToken, injectable, injector } from "@kayahr/di";
 
-@injectable({ inject: [ Service ] })
-class Component {
-    public constructor(service: Service) {}
-}
-```
+const secretCodeToken = new InjectionToken<number>("secret-code");
 
-Any kind of value can be registered but usually you want to inject it as a [named dependency](named-dependencies.md) when the value has no unique type:
+injector.setValue(12345, secretCodeToken);
 
-```typescript
-context.setValue(12345, "secret-code");
-
-@injectable({ inject: [ "secret-code" ] })
+@injectable({ inject: [ secretCodeToken ] })
 class Luggage {
     public constructor(combination: number) {}
 }
 ```
 
+If you want type-based registration then use a [class](class-dependencies.md) or [factory](factory-dependencies.md) registration instead.
+
 ## Asynchronous values
 
-Asynchronous values can be registered as a promise but can only be injected by name:
+Asynchronous values can be registered as promises:
 
-```typescript
-context.setValue(Promise.resolve({ verbose: true }), "config");
+```ts
+const configToken = new InjectionToken<Config>("config");
 
-@injectable({ inject: [ "config" ] })
-class Component{
+injector.setValue(Promise.resolve({ verbose: true }), configToken);
+
+@injectable({ inject: [ configToken ] })
+class Component {
     public constructor(config: Config) {
         if (config.verbose) {
             console.log("Component created");
@@ -43,4 +40,4 @@ class Component{
 }
 ```
 
-If you want to inject an asynchronous value by type then you have to register a [factory function](factory-dependencies.md) instead.
+If you want to inject an asynchronous value by type then register a [factory function](factory-dependencies.md) instead.

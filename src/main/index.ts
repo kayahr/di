@@ -1,13 +1,15 @@
 /*
- * Copyright (C) 2025 Klaus Reimer <k@ailis.de>
- * See LICENSE.md for licensing information
+ * Copyright (C) 2026 Klaus Reimer
+ * SPDX-License-Identifier: MIT
  */
 
 export type { NullableQualifier, NullableQualifiers, Qualifier, Qualifiers } from "./Qualifier.ts";
 export type { Class, ClassDecorator, ClassMethodDecorator, Constructor, Factory } from "./types.ts";
-
-export { Context, type InjectableOptions } from "./Context.ts";
-export { injectable, type InjectableDecorator, type InjectableDecoratorContext, type InjectableTarget } from "./decorator.ts";
+export {
+    type FunctionInject, type FunctionPassThroughParams, type InjectedFunction, Injector, type ResolvedFunction,
+    type FunctionOptions, injector, injectable, type InjectableOptions, type ResolveOptions, type TokenOptions
+} from "./Injector.ts";
+export { InjectionToken } from "./InjectionToken.ts";
+export { Lifetime } from "./Lifetime.ts";
+export type { InjectableDecorator, InjectableDecoratorContext, InjectableDecoratorFactory } from "./decorator.ts";
 export { InjectionError } from "./InjectionError.ts";
-export { QualifiedType, qualify } from "./QualifiedType.ts";
-export { Scope } from "./Scope.ts";

@@ -1,120 +1,186 @@
 /*
- * Copyright (C) 2025 Klaus Reimer <k@ailis.de>
- * See LICENSE.md for licensing information.
+ * Copyright (C) 2026 Klaus Reimer
+ * SPDX-License-Identifier: MIT
  */
 
-import type { Context } from "./Context.ts";
+import type { InjectionToken } from "./InjectionToken.ts";
 import { InjectionError } from "./InjectionError.ts";
-import { type NullableQualifier, Qualifier } from "./Qualifier.ts";
-import { Scope } from "./Scope.ts";
-import type { Class, Constructor, Factory } from "./types.ts";
+import { Lifetime } from "./Lifetime.ts";
+import type { DependencyQualifier, NullableQualifier } from "./Qualifier.ts";
+import type { Class } from "./types.ts";
 
 /**
- * A resolvable and injectable dependency.
+ * Constructor arguments of one injectable.
  */
-export class Injectable<T = unknown> {
-    readonly #type: Class<T>;
-    readonly #factory: Factory<T>;
-    readonly #params: NullableQualifier[];
-    readonly #names: ReadonlyArray<string | symbol>;
-    readonly #scope: Scope;
+export interface InjectableArgs<Value = unknown, Type extends Function = Class<Value>> {
+    /** The raw registration type under which this injectable registers itself, for example a class, target class, or raw function. */
+    type: Type;
 
-    /** Cached instance of the dependency. */
-    #instance: T | Promise<T> | null = null;
+    /**
+     * The factory function to create the actual dependency (synchronous or asynchronous), or null when the registration is
+     * backed by an already existing value set separately as singleton instance.
+     */
+    factory: ((params: unknown[], qualifier: DependencyQualifier<Value, Type>) => Value | Promise<Value>) | null;
+
+    /** The parameters of the constructor or static factory method. */
+    params?: NullableQualifier[];
+
+    /** Additional injection token aliases of this injectable. */
+    token?: InjectionToken<any> | Array<InjectionToken<any>>;
+
+    /** Additional class qualifiers explicitly provided by this injectable. */
+    provide?: Class | Class[];
+
+    /** Whether the concrete type itself should be registered as qualifier. Defaults to true. */
+    registerSelf?: boolean;
+
+    /** The dependency lifetime. Defaults to {@link Lifetime.SINGLETON}. */
+    lifetime?: Lifetime;
+}
+
+/**
+ * Internal runtime model of one DI registration.
+ *
+ * An injectable combines the static registration metadata with the mutable singleton instance slot. It deliberately does not know anything about
+ * scopes or registries; ownership and lifecycle decisions are handled outside by the injector and registry layers.
+ *
+ * @template Value - The dependency value produced or cached by this registration.
+ * @template Type  - The raw registration type under which this injectable registers itself.
+ */
+export class Injectable<Value = unknown, Type extends Function = Class<Value>> {
+    readonly #factory: ((params: unknown[], qualifier: DependencyQualifier<Value, Type>) => Value | Promise<Value>) | null;
+    readonly #params: NullableQualifier[];
+    readonly #qualifiers: ReadonlyArray<DependencyQualifier<Value, Type>>;
+    readonly #lifetime: Lifetime;
+
+    /** Cached singleton instance or pending singleton promise. */
+    #instance: Value | Promise<Value> | null = null;
 
     /**
      * Creates a new injectable.
      *
-     * @param type    - The type into which this injectable is resolved.
-     * @param factory - The factory function to create the actual dependency (synchronous or asynchronous).
-     * @param params  - The parameters of the constructor or static factory method to resolve and pass to the
-     *                  factory function when creating the dependency.
-     * @param name    - Optional qualifier name (or names) this injectable matches.
-     * @param scope   - The injection scope.
+     * @param args - Registration metadata and runtime creation settings of this injectable.
      */
-    public constructor(
-        type: Class<T> | Constructor<T>,
-        factory: (...args: any[]) => T | Promise<T>,
-        params: NullableQualifier[] = [],
-        name: string | symbol | Array<string | symbol> = [],
-        scope: Scope = Scope.SINGLETON
-    ) {
-        this.#type = type;
+    public constructor({
+        type,
+        factory,
+        params,
+        token,
+        provide,
+        registerSelf,
+        lifetime = Lifetime.SINGLETON
+    }: InjectableArgs<Value, Type>) {
         this.#factory = factory;
-        this.#params = params;
-        this.#names = Array.isArray(name) ? name.slice() : [ name ];
-        this.#scope = scope;
+        this.#params = params?.slice() ?? [];
+        this.#qualifiers = Injectable.#createQualifiers(type, token, provide, registerSelf);
+        this.#lifetime = lifetime;
     }
 
     /**
-     * @returns The registered names of this injectable.
+     * @returns True when this injectable is transient.
      */
-    public getNames(): ReadonlyArray<string | symbol> {
-        return this.#names;
+    public isTransient(): boolean {
+        return this.#lifetime === Lifetime.TRANSIENT;
     }
 
     /**
-     * @returns The instance type.
+     * @returns True when this injectable can create new instances through a factory.
      */
-    public getType(): Class<T> {
-        return this.#type;
+    public hasFactory(): boolean {
+        return this.#factory != null;
     }
 
     /**
-     * Creates and returns a new dependency instance.
-     *
-     * @param context   - The injection context.
-     * @param qualifier - The requested qualifier. Used in error messages.
-     * @param params    - Optional list of manual pass-through parameters.
-     * @returns The created instance. Can be a promise when dependency is asynchronous.
+     * @returns The complete set of local qualifier aliases under which this injectable is registered.
      */
-    #createNewInstance(context: Context, qualifier: Qualifier, params?: unknown[]): Promise<T> | T {
-        let paramIndex = 0;
-        const numParams = params?.length ?? 0;
-        const values = this.#params.map(param => {
-            if (param == null) {
-                if (paramIndex >= numParams) {
-                    throw new InjectionError(`Pass-through parameter ${paramIndex + 1} not found for dependency ${Qualifier.toString(qualifier)}`);
-                }
-                return params?.[paramIndex++];
-            } else {
-                return context.get(param);
-            }
-        });
-        return values.some(value => value instanceof Promise)
-            ? (async (): Promise<T> => this.#factory(...await Promise.all(values)))()
-            : this.#factory(...values);
+    public getQualifiers(): ReadonlyArray<DependencyQualifier<Value, Type>> {
+        return this.#qualifiers;
     }
 
     /**
-     * Returns a singleton instance of the injectable. The created instance is cached so the same instance is returned on each call.
-     *
-     * @param context   - The injection context.
-     * @param qualifier - The requested qualifier. Used in error messages
-     * @returns The created instance or a promise when asynchronous creation is in progress.
+     * @returns The configured injected parameters and pass-through placeholders.
      */
-    #getSingletonInstance(context: Context, qualifier: Qualifier): Promise<T> | T {
-        if (this.#instance == null) {
-            this.#instance = this.#createNewInstance(context, qualifier);
+    public getParams(): readonly NullableQualifier[] {
+        return this.#params;
+    }
 
-            // Replace asynchronous instance with synchronous instance when resolved
-            if (this.#instance instanceof Promise) {
-                void this.#instance.then(instance => (this.#instance = instance));
-            }
-        }
+    /**
+     * @returns The cached singleton instance, or null when it was not created yet.
+     */
+    public getInstance(): Value | Promise<Value> | null {
         return this.#instance;
     }
 
     /**
-     * Returns the instance of the injectable. Depending on the configured scope this can be a singleton instance or a new instance on every call.
+     * Sets the cached singleton instance.
      *
-     * @param context   - The injection context.
-     * @param qualifier - The requested qualifier. Used in error messages
-     * @param params    - Optional list of manual pass-through parameters fo prototype scoped injectables. Not used for singletons, they don't
-     *                    support pass-through parameters.
-     * @returns The instance or a promise when asynchronous creation is in progress.
+     * @param instance - The instance to cache.
+     * @returns The cached instance.
+     *
+     * @template Instance - The concrete instance or pending promise type being cached.
      */
-    public get(context: Context, qualifier: Qualifier, params?: unknown[]): Promise<T> | T {
-        return this.#scope === Scope.PROTOTYPE ? this.#createNewInstance(context, qualifier, params) : this.#getSingletonInstance(context, qualifier);
+    public setInstance<Instance extends Value | Promise<Value>>(instance: Instance): Instance {
+        return this.#instance = instance;
+    }
+
+    /**
+     * Clears the cached singleton instance.
+     */
+    public clearInstance(): void {
+        this.#instance = null;
+    }
+
+    /**
+     * Creates one dependency instance from already resolved constructor or factory arguments.
+     *
+     * @param params - The resolved constructor or factory arguments.
+     * @returns The created instance.
+     * @throws {@link InjectionError} when no factory is configured for this registration.
+     */
+    public create(params: unknown[], qualifier: DependencyQualifier<Value, Type>): Promise<Value> | Value {
+        if (this.#factory == null) {
+            throw new InjectionError("Factory not set");
+        }
+        return this.#factory(params, qualifier);
+    }
+
+    /**
+     * Creates the full local qualifier list of one injectable.
+     *
+     * Exact type qualifiers, explicit provides, and raw tokens are all derived once here so registry registration and removal use the exact same
+     * qualifier set.
+     *
+     * @param type         - The raw registration type under which the injectable registers itself.
+     * @param token        - Optional injection token or tokens.
+     * @param provide      - Optional explicit class qualifiers.
+     * @param registerSelf - Optional flag controlling whether the concrete type itself should be registered as qualifier. Defaults to true.
+     * @returns The complete qualifier list without duplicates.
+     *
+     * @template Value - The dependency value type.
+     * @template Type  - The raw registration type of the injectable itself.
+     */
+    static #createQualifiers<Value, Type extends Function>(
+        type: Type,
+        token?: InjectionToken<any> | Array<InjectionToken<any>>,
+        provide?: Class | Class[],
+        registerSelf = true
+    ): ReadonlyArray<DependencyQualifier<Value, Type>> {
+        const qualifiers: Array<DependencyQualifier<Value, Type>> = [];
+        const knownQualifiers = new Set<DependencyQualifier<Value, Type>>();
+        const selfTypes = registerSelf ? [ type ] : [];
+        const providedTypes = Array.isArray(provide) ? provide.slice() : (provide == null ? [] : [ provide ]);
+        const tokens = Array.isArray(token) ? token.slice() : (token == null ? [] : [ token ]);
+        const rawTypes = [ ...selfTypes, ...providedTypes ];
+
+        for (const qualifier of [ ...rawTypes, ...tokens ]) {
+            if (!knownQualifiers.has(qualifier)) {
+                qualifiers.push(qualifier);
+                knownQualifiers.add(qualifier);
+            }
+        }
+        return qualifiers;
     }
 }
+
+/** Internal fully-erased injectable type used by heterogeneous registry internals. */
+export type AnyInjectable = Injectable<any, any>;
