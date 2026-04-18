@@ -10,7 +10,10 @@
         "dependency",
         "dependencies",
         "injection",
-        "singleton"
+        "singleton",
+        "injector",
+        "scope",
+        "scopes"
     ],
     "license": "MIT",
     "author": "Klaus Reimer <k@ailis.de>",
