@@ -38,10 +38,10 @@ describe("index", () => {
             InjectionError
         });
 
-        ((): InjectableOptions => (({} as exports.InjectableOptions)))();
-        ((): FunctionOptions => (({} as exports.FunctionOptions)))();
-        ((): ResolveOptions => (({} as exports.ResolveOptions)))();
-        ((): TokenOptions => (({} as exports.TokenOptions)))();
+        ((): InjectableOptions => ((0 as exports.InjectableOptions)))();
+        ((): FunctionOptions => ((0 as exports.FunctionOptions)))();
+        ((): ResolveOptions => ((0 as exports.ResolveOptions)))();
+        ((): TokenOptions => ((0 as exports.TokenOptions)))();
         ((): Class => (({} as exports.Class)))();
         ((): Constructor => (({} as exports.Constructor)))();
         ((): Factory => (({} as exports.Factory)))();

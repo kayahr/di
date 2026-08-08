@@ -50,12 +50,13 @@ describe("error", () => {
             let thrown: unknown = null;
 
             try {
+                const deepError = new AggregateError([ new Error("third") ], "deep");
                 throwErrors([
                     new AggregateError([
                         new Error("first"),
                         new AggregateError([
                             "second",
-                            new AggregateError([ new Error("third") ], "deep")
+                            deepError
                         ], "inner")
                     ], "outer")
                 ], "flattened");
