@@ -77,7 +77,28 @@ class Component {
 }
 ```
 
-Just like with classes, tokens are also useful for interfaces because interfaces do not exist at runtime.
+In this form both `Component` and `componentToken` resolve the same registration.
+
+A factory can also be registered exclusively under an injection token by passing the token as the first argument to `injector.setFactory()`:
+
+```ts
+import { readFile } from "node:fs/promises";
+import { InjectionToken, injector } from "@kayahr/di";
+
+interface Config {
+    server: {
+        port: number;
+    };
+}
+
+const configToken = new InjectionToken<Config>("config");
+
+async function loadConfig(): Promise<Config> {
+    return JSON.parse(await readFile("config.json", "utf8")) as Config;
+}
+
+injector.setFactory(configToken, loadConfig);
+```
 
 ## Factory lifetimes
 

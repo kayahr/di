@@ -297,6 +297,69 @@ describe("Injector", () => {
         assertSame(injector.getSync(Test).value, 23);
     });
 
+    it("registers token-qualified factories lazily and only under their tokens", async () => {
+        interface Config {
+            value: number;
+        }
+
+        const firstToken = new InjectionToken<Config>("first-config");
+        const secondToken = new InjectionToken<Config>("second-config");
+        let calls = 0;
+
+        async function loadConfig(): Promise<Config> {
+            return Promise.resolve({ value: ++calls });
+        }
+
+        injector.setFactory(firstToken, loadConfig);
+        injector.setFactory(secondToken, loadConfig);
+
+        assertSame(calls, 0);
+        assertSame(injector.has(firstToken), true);
+        assertSame(injector.has(secondToken), true);
+        assertSame(injector.has(loadConfig), false);
+
+        const first = await injector.getAsync(firstToken);
+        assertSame(await injector.getAsync(firstToken), first);
+        assertEquals(first, { value: 1 });
+
+        const second = await injector.getAsync(secondToken);
+        assertNotSame(second, first);
+        assertEquals(second, { value: 2 });
+        assertSame(calls, 2);
+    });
+
+    it("injects dependencies into token-qualified factories", () => {
+        interface Config {
+            value: number;
+        }
+
+        const valueToken = new InjectionToken<number>("value");
+        const configToken = new InjectionToken<Config>("config");
+
+        injector.setValue(23, valueToken);
+        injector.setFactory(configToken, (value: number): Config => ({ value }), { inject: [ valueToken ] });
+
+        assertEquals(injector.getSync(configToken), { value: 23 });
+    });
+
+    it("supports pass-through parameters in transient token-qualified factories", () => {
+        interface Config {
+            name: string;
+            value: number;
+        }
+
+        const valueToken = new InjectionToken<number>("value");
+        const configToken = new InjectionToken<Config>("config");
+
+        injector.setValue(23, valueToken);
+        injector.setFactory(configToken, (name: string, value: number): Config => ({ name, value }), {
+            inject: [ null, valueToken ],
+            lifetime: Lifetime.TRANSIENT
+        });
+
+        assertEquals(injector.getSync(configToken, { args: [ "test" ] }), { name: "test", value: 23 });
+    });
+
     it("snapshots inject arrays on registration", () => {
         abstract class BaseService {
             public abstract readonly name: string;
@@ -821,6 +884,10 @@ describe("Injector", () => {
             injector.setClass(Test, { token: stringToken });
             // @ts-expect-error Must not compile because token type does not match factory result type
             injector.setFactory(FactoryTest, () => new FactoryTest(), { token: stringToken });
+            // @ts-expect-error Must not compile because token type does not match token-qualified factory result type
+            injector.setFactory(numberToken, () => "wrong");
+            // @ts-expect-error Must not compile because inject token type does not match the token-qualified factory parameter type
+            injector.setFactory(numberToken, (value: number) => value, { inject: [ stringToken ] });
             // @ts-expect-error Must not compile because token type does not match resolved function signature
             injector.setFunction(divide, [ null, numberToken ], { token: wrongDivideToken });
         });
