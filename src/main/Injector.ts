@@ -368,6 +368,7 @@ export class Injector {
      * @param fn      - The registered function qualifier to remove.
      * @param options - Optional resolve options.
      * @returns True if something was removed, false if not.
+     * @throws {@link InjectionError} when the cached singleton instance requires asynchronous disposal.
      *
      * @template Params - The original function parameter types.
      * @template Return - The function return type.
@@ -380,6 +381,7 @@ export class Injector {
      * @param qualifier - The qualifier to remove.
      * @param options   - Optional resolve options.
      * @returns True if something was removed, false if not.
+     * @throws {@link InjectionError} when the cached singleton instance requires asynchronous disposal.
      *
      * @template Value - The provided dependency type.
      */
@@ -391,6 +393,7 @@ export class Injector {
      * @param qualifier - The qualifier to remove.
      * @param options   - Optional resolve options.
      * @returns True if something was removed, false if not.
+     * @throws {@link InjectionError} when the cached singleton instance requires asynchronous disposal.
      */
     public remove(qualifier: AnyDependencyQualifier, { scope }: ResolveOptions = {}): boolean {
         const targetScope = this.#getTargetScope(scope);
@@ -402,6 +405,48 @@ export class Injector {
             return false;
         }
         return registry.remove(qualifier);
+    }
+
+    /**
+     * Asynchronously removes the given registered function from the target scope's registry only and does not bubble up the parent chain.
+     *
+     * @param fn      - The registered function qualifier to remove.
+     * @param options - Optional resolve options.
+     * @returns Promise resolving to true if something was removed, or false if not.
+     *
+     * @template Params - The original function parameter types.
+     * @template Return - The function return type.
+     */
+    public removeAsync<Params extends unknown[], Return>(fn: (...params: Params) => Return, options?: ResolveOptions): Promise<boolean>;
+
+    /**
+     * Asynchronously removes the given class or injection token from the target scope's registry only and does not bubble up the parent chain.
+     *
+     * @param qualifier - The qualifier to remove.
+     * @param options   - Optional resolve options.
+     * @returns Promise resolving to true if something was removed, or false if not.
+     *
+     * @template Value - The provided dependency type.
+     */
+    public removeAsync<Value>(qualifier: Qualifier<Value>, options?: ResolveOptions): Promise<boolean>;
+
+    /**
+     * Asynchronously removes the given dependency from the target scope's registry only and does not bubble up the parent chain.
+     *
+     * @param qualifier - The qualifier to remove.
+     * @param options   - Optional resolve options.
+     * @returns Promise resolving to true if something was removed, or false if not.
+     */
+    public async removeAsync(qualifier: AnyDependencyQualifier, { scope }: ResolveOptions = {}): Promise<boolean> {
+        const targetScope = this.#getTargetScope(scope);
+        if (qualifier === Injector || qualifier === Scope) {
+            return false;
+        }
+        const registry = targetScope.get(this.#registrySlot);
+        if (registry == null) {
+            return false;
+        }
+        return await registry.removeAsync(qualifier);
     }
 
     /**
@@ -557,7 +602,9 @@ export class Injector {
             const createdRegistry = new Registry(targetScope);
             targetScope.set(this.#registrySlot, createdRegistry);
             targetScope.onDispose(() => {
-                createdRegistry.dispose();
+                if (!createdRegistry.requiresAsyncDisposal()) {
+                    createdRegistry.dispose();
+                }
             });
             registry = createdRegistry;
         }

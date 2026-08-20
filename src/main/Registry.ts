@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import type { Scope } from "@kayahr/scope";
+import { type Scope, disposeAsync } from "@kayahr/scope";
 import type { AnyInjectable, Injectable } from "./Injectable.ts";
 import { InjectionError } from "./InjectionError.ts";
 import { hasErrors, throwErrors } from "./error.ts";
@@ -20,12 +20,25 @@ function isDisposable(value: unknown): value is Disposable {
 }
 
 /**
+ * Returns whether the given value exposes an asynchronous disposal callback.
+ *
+ * @param value - The value to test.
+ * @returns True when the value is asynchronously disposable.
+ */
+function isAsyncDisposable(value: unknown): value is AsyncDisposable {
+    return value != null && typeof (value as AsyncDisposable)[Symbol.asyncDispose] === "function";
+}
+
+/**
  * Scope-local DI registry owning all injectables registered on one concrete scope.
  */
-export class Registry implements Disposable {
+export class Registry implements AsyncDisposable, Disposable {
     readonly #scope: Scope;
     readonly #injectables = new Map<AnyDependencyQualifier, AnyInjectable>();
     readonly #ownedInjectables = new Set<AnyInjectable>();
+    #requiresAsyncDisposal = false;
+    #disposed = false;
+    #disposePromise: Promise<void> | null = null;
 
     /**
      * Creates a new scope-local registry.
@@ -43,6 +56,15 @@ export class Registry implements Disposable {
      */
     public getScope(): Scope {
         return this.#scope;
+    }
+
+    /**
+     * Returns whether this registry must be disposed asynchronously.
+     *
+     * @returns True when the registry owns at least one asynchronously disposable singleton instance.
+     */
+    public requiresAsyncDisposal(): boolean {
+        return this.#requiresAsyncDisposal;
     }
 
     /**
@@ -86,20 +108,26 @@ export class Registry implements Disposable {
      */
     public setSingletonInstance<Value, Type extends Function>(injectable: Injectable<Value, Type>, value: Value | Promise<Value>,
             qualifier?: DependencyQualifier<Value, Type>): Value | Promise<Value> {
+        this.#ownedInjectables.delete(injectable);
+        this.#ownedInjectables.add(injectable);
         if (!(value instanceof Promise)) {
-            return injectable.setInstance(value);
+            injectable.setInstance(value);
+            this.#registerAsyncDisposal(value);
+            return value;
         }
         const pending = (async (): Promise<Value> => {
             try {
                 const resolvedValue = await value;
-                if (!this.hasInjectable(injectable)) {
-                    this.#disposeValue(resolvedValue);
+                if (!this.hasInjectable(injectable) || this.#scope.isDisposed()) {
+                    await this.#disposeValueAsync(resolvedValue);
                     const dependencyName = qualifier == null
                         ? Qualifier.toStrings(injectable.getQualifiers())
                         : Qualifier.toString(qualifier);
                     throw new InjectionError(`Asynchronous dependency ${dependencyName} was invalidated before creation completed`);
                 }
-                return injectable.setInstance(resolvedValue);
+                injectable.setInstance(resolvedValue);
+                this.#registerAsyncDisposal(resolvedValue);
+                return resolvedValue;
             } catch (error) {
                 if (injectable.hasFactory() && injectable.getInstance() instanceof Promise) {
                     injectable.clearInstance();
@@ -147,12 +175,40 @@ export class Registry implements Disposable {
         if (injectable == null) {
             return false;
         }
+        const instance = injectable.getInstance();
+        if (instance != null && !(instance instanceof Promise) && isAsyncDisposable(instance)) {
+            throw new InjectionError(`Dependency ${Qualifier.toString(qualifier)} requires asynchronous disposal`);
+        }
+        this.#removeInjectable(injectable);
+        this.#disposeInjectable(injectable);
+        return true;
+    }
+
+    /**
+     * Asynchronously removes one locally owned injectable by any of its qualifier aliases.
+     *
+     * All local aliases of the matched injectable are removed together and the injectable is disposed immediately. Asynchronous disposal is preferred
+     * when supported by the cached singleton instance.
+     *
+     * @param qualifier - Any local qualifier alias of the injectable to remove.
+     * @returns Promise resolving to true when an injectable was removed, or false when the qualifier was not locally registered.
+     */
+    public async removeAsync(qualifier: AnyDependencyQualifier): Promise<boolean> {
+        const injectable = this.#injectables.get(qualifier);
+        if (injectable == null) {
+            return false;
+        }
+        this.#removeInjectable(injectable);
+        await this.#disposeInjectableAsync(injectable);
+        return true;
+    }
+
+    /** Removes all local qualifier aliases of the given injectable from this registry. */
+    #removeInjectable(injectable: AnyInjectable): void {
         for (const registeredQualifier of injectable.getQualifiers()) {
             this.#injectables.delete(registeredQualifier);
         }
         this.#ownedInjectables.delete(injectable);
-        this.#disposeInjectable(injectable);
-        return true;
     }
 
     /**
@@ -162,19 +218,68 @@ export class Registry implements Disposable {
         this.dispose();
     }
 
+    /** Alias for {@link disposeAsync}. */
+    public [Symbol.asyncDispose](): Promise<void> {
+        return this.disposeAsync();
+    }
+
     /**
      * Disposes the complete registry and all injectables still owned by it.
      *
      * This is called once by the owning scope cleanup.
      */
     public dispose(): void {
-        const injectables = [ ...this.#ownedInjectables ];
+        if (this.#disposed) {
+            return;
+        }
+        if (this.#requiresAsyncDisposal) {
+            throw new InjectionError("Registry requires asynchronous disposal");
+        }
+        this.#disposed = true;
+        const injectables = [ ...this.#ownedInjectables ].reverse();
         this.#injectables.clear();
         this.#ownedInjectables.clear();
         const errors: unknown[] = [];
         for (const injectable of injectables) {
             try {
                 this.#disposeInjectable(injectable);
+            } catch (error) {
+                errors.push(error);
+            }
+        }
+        if (hasErrors(errors)) {
+            throwErrors(errors, "Registry cleanup failed");
+        }
+    }
+
+    /**
+     * Asynchronously disposes the complete registry and all injectables still owned by it.
+     *
+     * Asynchronous disposal is preferred when supported by a cached singleton instance. Synchronous disposables are supported as a fallback. Concurrent
+     * calls share the same disposal operation.
+     *
+     * @returns Promise which resolves when registry disposal has completed.
+     */
+    public disposeAsync(): Promise<void> {
+        if (this.#disposePromise != null) {
+            return this.#disposePromise;
+        }
+        if (this.#disposed) {
+            return Promise.resolve();
+        }
+        this.#disposed = true;
+        return this.#disposePromise = this.#runAsyncDisposal();
+    }
+
+    /** Runs asynchronous disposal of all owned injectables. */
+    async #runAsyncDisposal(): Promise<void> {
+        const injectables = [ ...this.#ownedInjectables ].reverse();
+        this.#injectables.clear();
+        this.#ownedInjectables.clear();
+        const errors: unknown[] = [];
+        for (const injectable of injectables) {
+            try {
+                await this.#disposeInjectableAsync(injectable);
             } catch (error) {
                 errors.push(error);
             }
@@ -201,6 +306,22 @@ export class Registry implements Disposable {
     }
 
     /**
+     * Asynchronously disposes the currently cached synchronous instance of one injectable and clears the cache entry.
+     *
+     * Pending asynchronous instances are only uncached here. If they resolve later, {@link setSingletonInstance} disposes the resolved value because
+     * the injectable is no longer owned by this registry.
+     *
+     * @param injectable - The injectable to dispose.
+     */
+    async #disposeInjectableAsync(injectable: AnyInjectable): Promise<void> {
+        const instance = injectable.getInstance();
+        injectable.clearInstance();
+        if (instance != null && !(instance instanceof Promise)) {
+            await this.#disposeValueAsync(instance);
+        }
+    }
+
+    /**
      * Disposes one concrete value immediately unless it is the owning scope itself.
      *
      * The scope instance is excluded to avoid recursive disposal nonsense when `Scope` itself is cached as a dependency.
@@ -212,6 +333,21 @@ export class Registry implements Disposable {
     #disposeValue<Value>(value: Value): void {
         if (value !== this.#scope && isDisposable(value)) {
             value[Symbol.dispose]();
+        }
+    }
+
+    /** Asynchronously disposes one concrete value unless it is the owning scope itself. */
+    async #disposeValueAsync<Value>(value: Value): Promise<void> {
+        if (value !== this.#scope && (isAsyncDisposable(value) || isDisposable(value))) {
+            await disposeAsync(value);
+        }
+    }
+
+    /** Marks the owning scope as requiring asynchronous disposal when the given value is asynchronously disposable. */
+    #registerAsyncDisposal(value: unknown): void {
+        if (value !== this.#scope && !this.#requiresAsyncDisposal && isAsyncDisposable(value)) {
+            this.#requiresAsyncDisposal = true;
+            void this.#scope.onAsyncDispose(() => this.disposeAsync());
         }
     }
 }

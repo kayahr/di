@@ -78,4 +78,38 @@ injector.getSync(RequestHandler, { scope: requestScope }).run();
 
 ## Disposal
 
-Singleton instances are owned by the scope in which their provider is registered. Disposing that scope disposes the singleton as well.
+Singleton instances are owned by the scope in which their provider is registered. Instances implementing `Disposable` are disposed when their owning scope is disposed synchronously:
+
+```ts
+class Service {
+    public [Symbol.dispose](): void {
+        // Release the service synchronously.
+    }
+}
+
+const serviceScope = createScope();
+injector.setClass(Service, { scope: serviceScope });
+injector.getSync(Service, { scope: serviceScope });
+
+serviceScope.dispose();
+```
+
+Instances implementing `AsyncDisposable` require asynchronous disposal of their owning scope:
+
+```ts
+class Service {
+    public async [Symbol.asyncDispose](): Promise<void> {
+        await closeService();
+    }
+}
+
+const serviceScope = createScope();
+injector.setClass(Service, { scope: serviceScope });
+injector.getSync(Service, { scope: serviceScope });
+
+await serviceScope.disposeAsync();
+```
+
+Once an asynchronous singleton has been created, calling `dispose()` on its owning scope throws a `ScopeError` without disposing the scope. Use `disposeAsync()` instead. Synchronous and asynchronous singletons are disposed sequentially in reverse creation order, so a service is disposed before the dependencies used to create it. Multiple failures are aggregated. For providers registered on the shared root scope, use `resetRootScopeAsync()`.
+
+Removing a registration also disposes its cached singleton. Use `remove(...)` for synchronous singletons and `await removeAsync(...)` for asynchronous singletons. Pending asynchronous singleton creation is invalidated when its registration or owning scope is disposed. If creation still completes, the resulting instance is disposed immediately instead of being cached.

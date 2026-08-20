@@ -88,6 +88,8 @@ injector.has(componentToken); // false
 
 `remove` only affects the specified scope (root scope by default). Parent-scope registrations are not touched.
 
+`remove(...)` disposes a cached synchronous singleton before returning. If the cached singleton implements `AsyncDisposable`, it throws an `InjectionError` without removing the registration. Use `await removeAsync(...)` to remove it and await its asynchronous disposal. `removeAsync(...)` also supports synchronous disposables.
+
 
 ## Scopes
 

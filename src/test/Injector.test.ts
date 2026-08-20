@@ -5,8 +5,8 @@
 
 import { beforeEach, describe, it } from "node:test";
 
-import { assertInstanceOf, assertNotSame, assertSame, assertThrowWithMessage } from "@kayahr/assert";
-import { Scope, ScopeError, createScope, getRootScope, resetRootScope } from "@kayahr/scope";
+import { assertEquals, assertInstanceOf, assertNotSame, assertSame, assertThrowWithMessage } from "@kayahr/assert";
+import { Scope, ScopeError, createScope, getRootScope, resetRootScopeAsync } from "@kayahr/scope";
 import { InjectionError } from "../main/InjectionError.ts";
 import { InjectionToken } from "../main/InjectionToken.ts";
 import { Injector } from "../main/Injector.ts";
@@ -17,8 +17,8 @@ const divide = (dividend: number, divisor: number) => dividend / divisor;
 describe("Injector", () => {
     let injector: Injector;
 
-    beforeEach(() => {
-        resetRootScope();
+    beforeEach(async () => {
+        await resetRootScopeAsync();
         injector = new Injector();
     });
 
@@ -522,6 +522,66 @@ describe("Injector", () => {
         assertSame(disposed, 1);
     });
 
+    it("disposes singleton instances in reverse creation order", () => {
+        const seen: string[] = [];
+
+        class Dependency {
+            public [Symbol.dispose](): void {
+                seen.push("dependency");
+            }
+        }
+
+        class Service {
+            public readonly dependency: Dependency;
+
+            public constructor(dependency: Dependency) {
+                this.dependency = dependency;
+            }
+
+            public [Symbol.dispose](): void {
+                seen.push("service");
+            }
+        }
+
+        const child = createScope();
+        injector.setClass(Service, { scope: child, inject: [ Dependency ] });
+        injector.setClass(Dependency, { scope: child });
+        injector.getSync(Service, { scope: child });
+
+        child.dispose();
+
+        assertEquals(seen, [ "service", "dependency" ]);
+    });
+
+    it("asynchronously disposes singleton instances with their owning scope", async () => {
+        const seen: string[] = [];
+        let finish!: () => void;
+        const finished = new Promise<void>(resolve => {
+            finish = resolve;
+        });
+
+        class Test {
+            public async [Symbol.asyncDispose](): Promise<void> {
+                seen.push("start");
+                await finished;
+                seen.push("end");
+            }
+        }
+
+        const child = createScope();
+        injector.setClass(Test, { scope: child });
+        injector.getSync(Test, { scope: child });
+
+        assertThrowWithMessage(() => child.dispose(), ScopeError, "Scope requires asynchronous disposal");
+        const disposal = child.disposeAsync();
+        await Promise.resolve();
+        assertEquals(seen, [ "start" ]);
+        finish();
+        await disposal;
+
+        assertEquals(seen, [ "start", "end" ]);
+    });
+
     it("disposes registered values with their owning scope even without resolving them", () => {
         let disposed = 0;
 
@@ -568,6 +628,39 @@ describe("Injector", () => {
         assertSame(disposed, 1);
     });
 
+    it("asynchronously removes and disposes singleton instances", async () => {
+        let disposed = 0;
+
+        class Test {
+            public async [Symbol.asyncDispose](): Promise<void> {
+                await Promise.resolve();
+                disposed++;
+            }
+        }
+
+        class Unknown {}
+
+        const emptyScope = createScope();
+        const child = createScope();
+        injector.setClass(Test, { scope: child });
+        injector.getSync(Test, { scope: child });
+
+        assertSame(await injector.removeAsync(Injector, { scope: child }), false);
+        assertSame(await injector.removeAsync(Scope, { scope: child }), false);
+        assertSame(await injector.removeAsync(Unknown, { scope: emptyScope }), false);
+        assertSame(await injector.removeAsync(Unknown, { scope: child }), false);
+        assertThrowWithMessage(() => injector.remove(Test, { scope: child }), InjectionError,
+            "Dependency <Test> requires asynchronous disposal");
+        assertSame(injector.has(Test, { scope: child }), true);
+
+        assertSame(await injector.removeAsync(Test, { scope: child }), true);
+        assertSame(disposed, 1);
+        assertSame(injector.has(Test, { scope: child }), false);
+
+        emptyScope.dispose();
+        await child.disposeAsync();
+    });
+
     it("disposes removed asynchronous singleton instances once they resolve", async () => {
         let resolveFirst!: (value: AsyncTest) => void;
         let firstDisposed = 0;
@@ -599,11 +692,12 @@ describe("Injector", () => {
         assertSame(firstDisposed, 1);
     });
 
-    it("disposes asynchronously resolved singletons when the owner scope is already gone", async () => {
+    it("asynchronously disposes asynchronously resolved singletons when the owner scope is already gone", async () => {
         let disposed = 0;
 
         class Test {
-            public [Symbol.dispose](): void {
+            public async [Symbol.asyncDispose](): Promise<void> {
+                await Promise.resolve();
                 disposed++;
             }
         }
